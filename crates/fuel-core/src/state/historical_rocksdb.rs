@@ -226,6 +226,7 @@ where
         if self.state_rewind_policy == StateRewindPolicy::NoRewind {
             return Ok(());
         }
+
         let height_u64 = height.as_u64();
 
         let reverse_changes =
