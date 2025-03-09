@@ -472,5 +472,10 @@ pub fn init_sub_services(
         services.push(Box::new(poa));
     }
 
+    // always make sure that the block producer is inserted last
+    if let Some(poa) = poa {
+        services.push(Box::new(poa));
+    }
+
     Ok((services, shared))
 }
