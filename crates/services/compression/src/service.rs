@@ -106,13 +106,8 @@ where
         .expect("The current implementation should resolve all futures instantly")
         .map_err(crate::errors::CompressionError::FailedToCompressBlock)?;
 
-        storage_tx
-            .write_compressed_block(block_with_metadata.height(), &compressed_block)?;
-
         let size_of_compressed_block = storage_tx
-            .latest_compressed_block_size()
-            .unwrap_or_default()
-            .unwrap_or_default();
+            .write_compressed_block(block_with_metadata.height(), &compressed_block)?;
 
         storage_tx
             .commit()

@@ -1,19 +1,16 @@
 use crate::storage;
 use fuel_core_storage::{
-    iter::{
-        changes_iterator::ChangesIterator,
-        IterDirection,
-        IterableStore,
-    },
+    self,
     kv_store::KeyValueInspect,
     merkle::column::MerkleizedColumn,
+    not_found,
     transactional::{
         Modifiable,
-        StorageChanges,
         StorageTransaction,
     },
     StorageAsMut,
 };
+use fuel_core_types::fuel_types::canonical::Serialize;
 
 /// Compressed block type alias
 pub type CompressedBlock = fuel_core_compression::VersionedCompressedBlock;
@@ -36,8 +33,7 @@ pub(crate) trait WriteCompressedBlock {
         &mut self,
         height: &u32,
         compressed_block: &crate::ports::compression_storage::CompressedBlock,
-    ) -> crate::Result<()>;
-    fn latest_compressed_block_size(&self) -> crate::Result<Option<usize>>;
+    ) -> crate::Result<usize>;
 }
 
 impl<Storage> WriteCompressedBlock for StorageTransaction<Storage>
@@ -49,31 +45,29 @@ where
         &mut self,
         height: &u32,
         compressed_block: &crate::ports::compression_storage::CompressedBlock,
-    ) -> crate::Result<()> {
+    ) -> crate::Result<usize> {
         self.storage_as_mut::<storage::CompressedBlocks>()
             .insert(&(*height).into(), compressed_block)
-            .map_err(crate::errors::CompressionError::FailedToWriteCompressedBlock)
-    }
+            .map_err(crate::errors::CompressionError::FailedToWriteCompressedBlock)?;
 
-    fn latest_compressed_block_size(&self) -> crate::Result<Option<usize>> {
-        let changes = StorageChanges::Changes(self.changes().clone());
-        let view = ChangesIterator::new(&changes);
-        let raw_kv = view
-            .iter_store(
-                MerkleizedColumn::<storage::column::CompressionColumn>::TableColumn(
-                    storage::column::CompressionColumn::CompressedBlocks,
+        // this should not hit the db, we get it from the transaction
+        let size = KeyValueInspect::size_of_value(
+            self,
+            &(*height).to_bytes()[..],
+            MerkleizedColumn::<storage::column::CompressionColumn>::TableColumn(
+                storage::column::CompressionColumn::CompressedBlocks,
+            ),
+        )
+        .map_err(crate::errors::CompressionError::FailedToGetCompressedBlockSize)?;
+
+        let Some(size) = size else {
+            return Err(
+                crate::errors::CompressionError::FailedToGetCompressedBlockSize(
+                    not_found!(storage::CompressedBlocks),
                 ),
-                None,
-                None,
-                IterDirection::Reverse,
-            )
-            .next()
-            .transpose()
-            .map_err(crate::errors::CompressionError::FailedToGetCompressedBlockSize)?;
+            );
+        };
 
-        match raw_kv {
-            Some((_, value)) => Ok(Some(value.len())),
-            _ => Ok(None),
-        }
+        Ok(size)
     }
 }
