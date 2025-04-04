@@ -53,7 +53,7 @@ where
         // this should not hit the db, we get it from the transaction
         let size = KeyValueInspect::size_of_value(
             self,
-            &(*height).to_bytes()[..],
+            height.to_bytes().as_ref(),
             MerkleizedColumn::<storage::column::CompressionColumn>::TableColumn(
                 storage::column::CompressionColumn::CompressedBlocks,
             ),
