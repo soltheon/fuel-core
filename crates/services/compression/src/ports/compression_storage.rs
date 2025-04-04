@@ -10,7 +10,6 @@ use fuel_core_storage::{
     },
     StorageAsMut,
 };
-use fuel_core_types::fuel_types::canonical::Serialize;
 
 /// Compressed block type alias
 pub type CompressedBlock = fuel_core_compression::VersionedCompressedBlock;
@@ -53,7 +52,7 @@ where
         // this should not hit the db, we get it from the transaction
         let size = KeyValueInspect::size_of_value(
             self,
-            height.to_bytes().as_ref(),
+            height.to_be_bytes().as_ref(),
             MerkleizedColumn::<storage::column::CompressionColumn>::TableColumn(
                 storage::column::CompressionColumn::CompressedBlocks,
             ),
