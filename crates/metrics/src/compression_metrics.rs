@@ -1,37 +1,34 @@
 use crate::global_registry;
 use prometheus_client::metrics::gauge::Gauge;
 use std::sync::{
-    atomic::{
-        AtomicU32,
-        AtomicU64,
-    },
+    atomic::AtomicU32,
     OnceLock,
 };
 
 #[derive(Debug)]
 pub struct CompressionMetrics {
-    pub compression_ratio: Gauge<f64, AtomicU64>,
+    pub compressed_block_size_bytes: Gauge<u32, AtomicU32>,
     pub compression_duration_ms: Gauge<u32, AtomicU32>,
     pub compression_block_height: Gauge<u32, AtomicU32>,
 }
 
 impl Default for CompressionMetrics {
     fn default() -> Self {
-        let compression_ratio = Gauge::default();
+        let compressed_block_size_bytes = Gauge::default();
         let compression_duration_ms = Gauge::default();
         let compression_block_height = Gauge::default();
 
         let metrics = CompressionMetrics {
-            compression_ratio,
+            compressed_block_size_bytes,
             compression_duration_ms,
             compression_block_height,
         };
 
         let mut registry = global_registry().registry.lock();
         registry.register(
-            "compression_ratio",
-            "Compression ratio",
-            metrics.compression_ratio.clone(),
+            "compressed_block_size_bytes",
+            "Compressed block size in bytes",
+            metrics.compressed_block_size_bytes.clone(),
         );
         registry.register(
             "compression_duration_ms",

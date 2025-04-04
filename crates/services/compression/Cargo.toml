@@ -22,7 +22,6 @@ fuel-core-storage = { workspace = true, features = ["std"] }
 fuel-core-types = { workspace = true }
 futures = { workspace = true }
 paste = { workspace = true }
-postcard = { workspace = true }
 rand = { workspace = true, optional = true }
 serde = { workspace = true, features = ["derive"] }
 strum = { workspace = true, features = ["derive"] }

@@ -8,14 +8,10 @@ impl CompressionMetricsManager {
         CompressionMetricsManager
     }
 
-    pub(crate) fn record_compression_ratio(
-        &self,
-        uncompressed_size: usize,
-        compressed_size: usize,
-    ) {
+    pub(crate) fn record_compressed_block_size(&self, compressed_size: usize) {
         compression_metrics()
-            .compression_ratio
-            .set(compressed_size as f64 / uncompressed_size as f64);
+            .compressed_block_size_bytes
+            .set(u32::try_from(compressed_size).unwrap_or(u32::MAX));
     }
 
     pub(crate) fn record_compression_duration_ms(&self, duration_ms: u128) {

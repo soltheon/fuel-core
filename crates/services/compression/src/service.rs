@@ -25,10 +25,7 @@ use crate::{
         CompressionStorageWrapper,
     },
 };
-use fuel_core_compression::{
-    compress::compress,
-    VersionedCompressedBlock,
-};
+use fuel_core_compression::compress::compress;
 use fuel_core_services::{
     RunnableService,
     RunnableTask,
@@ -90,7 +87,7 @@ where
     fn compress_block(
         &mut self,
         block_with_metadata: &BlockWithMetadata,
-    ) -> crate::Result<VersionedCompressedBlock> {
+    ) -> crate::Result<usize> {
         let mut storage_tx = self.storage.write_transaction();
 
         // compress the block
@@ -112,11 +109,16 @@ where
         storage_tx
             .write_compressed_block(block_with_metadata.height(), &compressed_block)?;
 
+        let size_of_compressed_block = storage_tx
+            .latest_compressed_block_size()
+            .unwrap_or_default()
+            .unwrap_or_default();
+
         storage_tx
             .commit()
             .map_err(crate::errors::CompressionError::FailedToCommitTransaction)?;
 
-        Ok(compressed_block)
+        Ok(size_of_compressed_block)
     }
 
     fn handle_new_block(
@@ -129,24 +131,14 @@ where
             .ok();
 
         if let Some(metrics_manager) = self.metrics_manager {
-            let (compressed_block, compression_duration) = {
+            let (compressed_block_size, compression_duration) = {
                 let start = Instant::now();
-                let compressed_block = self.compress_block(block_with_metadata)?;
-                (compressed_block, start.elapsed().as_millis())
+                let compressed_block_size = self.compress_block(block_with_metadata)?;
+                (compressed_block_size, start.elapsed().as_millis())
             };
 
             metrics_manager.record_compression_duration_ms(compression_duration);
-
-            // we calc the ratio after the compression is done so that these allocations dont affect
-            // the metrics for compression duration
-            if let (Ok(uncompressed), Ok(compressed)) = (
-                postcard::to_allocvec(&block_with_metadata.sealed_block.entity),
-                postcard::to_allocvec(&compressed_block),
-            ) {
-                metrics_manager
-                    .record_compression_ratio(uncompressed.len(), compressed.len());
-            }
-
+            metrics_manager.record_compressed_block_size(compressed_block_size);
             metrics_manager
                 .record_compression_block_height(*block_with_metadata.height());
         } else {
