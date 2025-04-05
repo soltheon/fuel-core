@@ -1,14 +1,17 @@
 use crate::global_registry;
 use prometheus_client::metrics::gauge::Gauge;
 use std::sync::{
-    atomic::AtomicU32,
+    atomic::{
+        AtomicU32,
+        AtomicU64,
+    },
     OnceLock,
 };
 
 #[derive(Debug)]
 pub struct CompressionMetrics {
     pub compressed_block_size_bytes: Gauge<u32, AtomicU32>,
-    pub compression_duration_ms: Gauge<u32, AtomicU32>,
+    pub compression_duration_ms: Gauge<f64, AtomicU64>,
     pub compression_block_height: Gauge<u32, AtomicU32>,
 }
 

@@ -129,7 +129,7 @@ where
             let (compressed_block_size, compression_duration) = {
                 let start = Instant::now();
                 let compressed_block_size = self.compress_block(block_with_metadata)?;
-                (compressed_block_size, start.elapsed().as_millis())
+                (compressed_block_size, start.elapsed().as_secs_f64())
             };
 
             metrics_manager.record_compression_duration_ms(compression_duration);

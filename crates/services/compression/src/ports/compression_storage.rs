@@ -1,4 +1,8 @@
-use crate::storage;
+use crate::{
+    errors::CompressionError,
+    storage,
+    storage::CompressedBlocks,
+};
 use fuel_core_storage::{
     self,
     kv_store::KeyValueInspect,
@@ -9,6 +13,7 @@ use fuel_core_storage::{
         StorageTransaction,
     },
     StorageAsMut,
+    StorageSize,
 };
 
 /// Compressed block type alias
@@ -31,7 +36,7 @@ pub(crate) trait WriteCompressedBlock {
     fn write_compressed_block(
         &mut self,
         height: &u32,
-        compressed_block: &crate::ports::compression_storage::CompressedBlock,
+        compressed_block: &CompressedBlock,
     ) -> crate::Result<usize>;
 }
 
@@ -43,28 +48,21 @@ where
     fn write_compressed_block(
         &mut self,
         height: &u32,
-        compressed_block: &crate::ports::compression_storage::CompressedBlock,
+        compressed_block: &CompressedBlock,
     ) -> crate::Result<usize> {
-        self.storage_as_mut::<storage::CompressedBlocks>()
-            .insert(&(*height).into(), compressed_block)
-            .map_err(crate::errors::CompressionError::FailedToWriteCompressedBlock)?;
+        let height = (*height).into();
+        self.storage_as_mut::<CompressedBlocks>()
+            .insert(&height, compressed_block)
+            .map_err(CompressionError::FailedToWriteCompressedBlock)?;
 
         // this should not hit the db, we get it from the transaction
-        let size = KeyValueInspect::size_of_value(
-            self,
-            height.to_be_bytes().as_ref(),
-            MerkleizedColumn::<storage::column::CompressionColumn>::TableColumn(
-                storage::column::CompressionColumn::CompressedBlocks,
-            ),
-        )
-        .map_err(crate::errors::CompressionError::FailedToGetCompressedBlockSize)?;
+        let size = StorageSize::<CompressedBlocks>::size_of_value(self, &height)
+            .map_err(CompressionError::FailedToGetCompressedBlockSize)?;
 
         let Some(size) = size else {
-            return Err(
-                crate::errors::CompressionError::FailedToGetCompressedBlockSize(
-                    not_found!(storage::CompressedBlocks),
-                ),
-            );
+            return Err(CompressionError::FailedToGetCompressedBlockSize(
+                not_found!(CompressedBlocks),
+            ));
         };
 
         Ok(size)

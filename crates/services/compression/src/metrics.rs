@@ -14,12 +14,10 @@ impl CompressionMetricsManager {
             .set(u32::try_from(compressed_size).unwrap_or(u32::MAX));
     }
 
-    pub(crate) fn record_compression_duration_ms(&self, duration_ms: u128) {
-        // this cast is safe. we would never record a compression longer than 49 days
-        // lets assume that we would be able to detect this and fix it before it happens :)
+    pub(crate) fn record_compression_duration_ms(&self, duration_ms: f64) {
         compression_metrics()
             .compression_duration_ms
-            .set(u32::try_from(duration_ms).unwrap_or(u32::MAX));
+            .set(duration_ms);
     }
 
     pub(crate) fn record_compression_block_height(&self, height: u32) {
