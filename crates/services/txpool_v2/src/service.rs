@@ -14,27 +14,31 @@ use crate::pool_worker::{
     ExtendedInsertionSource,
     InsertionSource,
 };
+use crate::{self as fuel_core_txpool, pool::TxPoolStats};
+use fuel_core_services::TaskNextAction;
+
+// Added
+use crate::mempool_db::MempoolDB;
+use fuel_core_client::client::FuelClient;
+use fuel_core_types::fuel_tx::field::Inputs;
+use fuel_core_types::fuel_tx::{AssetId, Cacheable};
+use fuel_core_types::services::executor::TransactionExecutionResult;
+use serde_json;
+use std::net::Ipv4Addr;
+use std::str::FromStr;
+use tokio::io::AsyncWriteExt;
+use tokio::sync::Mutex;
+
 use fuel_core_metrics::txpool_metrics::txpool_metrics;
 use fuel_core_services::{
-    seqlock::{
-        SeqLock,
-        SeqLockReader,
-        SeqLockWriter,
-    },
-    AsyncProcessor,
-    RunnableService,
-    RunnableTask,
-    ServiceRunner,
-    StateWatcher,
+    seqlock::{SeqLock, SeqLockReader, SeqLockWriter},
+    AsyncProcessor, RunnableService, RunnableTask, ServiceRunner, StateWatcher,
     SyncProcessor,
 };
 use fuel_core_txpool::{
     collision_manager::basic::BasicCollisionManager,
     config::Config,
-    error::{
-        Error,
-        RemovedReason,
-    },
+    error::{Error, RemovedReason},
     pool::Pool,
     ports::{
         AtomicView,
@@ -56,10 +60,7 @@ use fuel_core_txpool::{
     },
     shared_state::SharedState,
     storage::{
-        graph::{
-            GraphConfig,
-            GraphStorage,
-        },
+        graph::{GraphConfig, GraphStorage},
         Storage,
     },
 };
@@ -67,6 +68,7 @@ use fuel_core_types::{
     fuel_tx::{
         Transaction,
         UniqueIdentifier,
+        ContractId, Input, Receipt, TxId
     },
     fuel_types::{
         BlockHeight,
@@ -91,23 +93,12 @@ use fuel_core_types::{
 use futures::StreamExt;
 use parking_lot::RwLock;
 use std::{
-    collections::{
-        BTreeMap,
-        HashSet,
-        VecDeque,
-    },
+    collections::{BTreeMap, HashSet, VecDeque},
     sync::Arc,
-    time::{
-        SystemTime,
-        SystemTimeError,
-    },
+    time::{SystemTime, SystemTimeError},
 };
 use tokio::{
-    sync::{
-        mpsc,
-        oneshot,
-        watch,
-    },
+    sync::{mpsc, oneshot, watch},
     time::MissedTickBehavior,
 };
 
@@ -115,6 +106,28 @@ pub(crate) mod memory;
 mod pruner;
 mod subscriptions;
 pub(crate) mod verifications;
+
+use lazy_static::lazy_static;
+lazy_static! {
+    pub static ref AMMS: Vec<ContractId> =
+        vec![*MIRA, *MIRA_HELPER, *DIESEL, *DIESEL_HELPER];
+    pub static ref MIRA: ContractId = ContractId::from_str(
+        "0x2e40f2b244b98ed6b8204b3de0156c6961f98525c8162f80162fcf53eebd90e7",
+    )
+    .unwrap();
+    pub static ref MIRA_HELPER: ContractId = ContractId::from_str(
+        "0xa703db08d1dbf30a6cd2fef942d8dcf03f25d2254e2091ee1f97bf5fa615639e",
+    )
+    .unwrap();
+    pub static ref DIESEL: ContractId = ContractId::from_str(
+        "0x7c293b054938bedca41354203be4c08aec2c3466412cac803f4ad62abf22e476",
+    )
+    .unwrap();
+    pub static ref DIESEL_HELPER: ContractId = ContractId::from_str(
+        "0xa703db08d1dbf30a6cd2fef942d8dcf03f25d2254e2091ee1f97bf5fa615639e",
+    )
+    .unwrap();
+}
 
 pub type TxPool = Pool<
     GraphStorage,
@@ -187,9 +200,10 @@ where
     tx_status_manager: Arc<TxStatusManager>,
     current_height_writer: SeqLockWriter<BlockHeight>,
     current_height_reader: SeqLockReader<BlockHeight>,
+    metrics: bool,
     tx_sync_history: Shared<HashSet<PeerId>>,
     shared_state: SharedState,
-    metrics: bool,
+    mempool_db: Arc<Mutex<MempoolDB>>,
 }
 
 #[async_trait::async_trait]
@@ -455,7 +469,7 @@ where
         for transaction in transactions {
             let Ok(reservation) = self.transaction_verifier_process.reserve() else {
                 tracing::error!("Failed to insert transactions: Out of capacity");
-                continue
+                continue;
             };
             let op = self.insert_transaction(transaction, None, None);
 
@@ -571,6 +585,116 @@ where
         message_id: Vec<u8>,
         peer_id: PeerId,
     ) {
+        //==================================EDITED====================================
+        // @author soltheon
+        //
+        let block_number: u32 = *self.current_height_reader.read();
+
+        // Check if transaction is swapping on dex
+        if let Transaction::Script(script) = &tx {
+            let tx_inputs = script.inputs();
+            for input in tx_inputs {
+                let relevant = match input {
+                    Input::Contract(c) => AMMS.contains(&c.contract_id),
+                    _ => false,
+                };
+
+                if relevant {
+                    dbg!(&script);
+                    // TODO: do i need to precompute this?
+                    let mut tx = tx.clone();
+                    // sets metadata
+                    tx.precompute(&self.chain_id).unwrap();
+                    dbg!(&tx);
+                    let addr = std::net::SocketAddr::new(
+                        std::net::IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+                        4000,
+                    );
+
+                    let client = FuelClient::from(addr);
+                    let mempool_db: Arc<Mutex<MempoolDB>> = Arc::clone(&self.mempool_db); // Clone Arc for the spawn
+
+                    tokio::spawn(async move {
+                        dbg!("\n\n\n\n\n================================Simulating transaction to get amounts:=================================== \n\n");
+                        match client.dry_run(&[tx.clone()]).await {
+                            Ok(res) => {
+                                match &res[0].result {
+                                    TransactionExecutionResult::Success {
+                                        result: _,
+                                        receipts,
+                                        total_gas: _,
+                                        total_fee: _,
+                                    } => {
+                                        // Store receipts in database
+                                        let assets_moved: Vec<(ContractId, AssetId, i64)> = receipts.iter()
+                        .filter(|r| {
+                            match r {
+                                Receipt::Transfer {id, to, ..} => AMMS.contains(&id) || AMMS.contains(&to),
+                                Receipt::TransferOut {id, ..} => AMMS.contains(&id),
+                                Receipt::Call {id, to, ..} => AMMS.contains(&id) || AMMS.contains(&to),
+                                _ => false,
+                            }
+                        })
+                        .map(|r| {
+                            match r {
+                                Receipt::Transfer { id, to, amount, asset_id, .. } => {
+                                    if AMMS.contains(&id) {
+                                        (*id, *asset_id, -(*amount as i64))
+                                    } else {
+                                        (*to, *asset_id, *amount as i64)
+                                    }
+                                }
+                                Receipt::TransferOut { id, amount, asset_id, .. } => {
+                                        (*id, *asset_id, -(*amount as i64))
+                                }
+                                Receipt::Call { id, to, amount, asset_id, .. } => {
+                                    if AMMS.contains(&id) {
+                                        (*id, *asset_id, -(*amount as i64))
+                                    } else {
+                                        (ContractId::from(*to), *asset_id, *amount as i64)
+                                    }
+                                }
+                                _ => panic!("\n\n\n\n\n\n\n\n\n wrong receipt passed filter, this should never happen\n\n\n"),
+                            }
+                        })
+                        .collect(); // Add .collect() to turn iterator into Vec
+
+                                        let db = mempool_db.lock().await;
+                                        db.insert_assets_moved(
+                                            block_number,
+                                            assets_moved,
+                                        )
+                                        .expect(
+                                            "Failed to insert assets_moved into SQLite",
+                                        );
+                                        // Write to file for debugging using tokio::fs for async I/O
+                                        let json = serde_json::to_string(&res).unwrap_or_else(|e| {
+                        tracing::error!("Failed to serialize dry_run result: {}", e);
+                        "{}".to_string()
+                    });
+                                        let mut file = tokio::fs::File::create(
+                                            "/tmp/simulation_output.json",
+                                        )
+                                        .await
+                                        .unwrap();
+                                        file.write_all(json.as_bytes()).await.unwrap();
+                                        file.flush().await.unwrap();
+                                        tracing::info!("Dry run result written to /tmp/simulation_output.json");
+                                        dbg!("Dry succeeded run result written to /tmp/simulation_output.json");
+                                    }
+                                    TransactionExecutionResult::Failed { .. } => (),
+                                }
+                            }
+                            Err(e) => {
+                                tracing::error!("Dry run failed: {}", e);
+                            }
+                        }
+                    }); // End simulation
+                } // end relevant transaction
+            }
+        }
+        //==================================END-EDITED====================================
+
         let Ok(reservation) = self.transaction_verifier_process.reserve() else {
             tracing::error!("Failed to insert transaction from P2P: Out of capacity");
             return;
@@ -598,7 +722,7 @@ where
 
                     // We already synced with this peer in the past.
                     if !tx_sync_history.insert(peer_id.clone()) {
-                        return
+                        return;
                     }
                 }
 
@@ -814,6 +938,13 @@ where
         new_txs_notifier.clone(),
     );
 
+    tracing::warn!("\n\nInitializing MempoolDB...\n\n");
+    dbg!("mempool_db pending");
+    let mempool_db = Arc::new(Mutex::new(
+        MempoolDB::new().expect("Failed to open sqlite database"),
+    ));
+    dbg!("mempool_db success");
+
     // BlockHeight is < 64 bytes, so we can use SeqLock
     let (current_height_writer, current_height_reader) =
         unsafe { SeqLock::new(current_height) };
@@ -848,5 +979,6 @@ where
         metrics,
         tx_sync_history: Default::default(),
         tx_status_manager: Arc::new(tx_status_manager),
+        mempool_db,
     })
 }

@@ -46,6 +46,7 @@ pub mod config;
 pub mod error;
 mod extracted_outputs;
 mod pending_pool;
+mod mempool_db;
 mod pool;
 mod pool_worker;
 pub mod ports;

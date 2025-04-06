@@ -15,8 +15,7 @@ use crate::{
             OffChainDatabaseAt,
         },
         storage::{
-            contracts::ContractsInfo,
-            da_compression::DaCompressedBlocks,
+            contracts::ContractsInfo, da_compression::DaCompressedBlocks,
             relayed_transactions::RelayedTransactionStatuses,
             transactions::OwnedTransactionIndexCursor,
         },
@@ -25,67 +24,31 @@ use crate::{
         indexation::coins_to_spend::NON_RETRYABLE_BYTE,
         ports::CoinsToSpendIndexIter,
         storage::{
-            assets::{
-                AssetDetails,
-                AssetsInfo,
-            },
+            assets::{AssetDetails, AssetsInfo},
             balances::{
-                CoinBalances,
-                CoinBalancesKey,
-                MessageBalance,
-                MessageBalances,
+                CoinBalances, CoinBalancesKey, MessageBalance, MessageBalances,
                 TotalBalanceAmount,
             },
             coins::CoinsToSpendIndex,
-            old::{
-                OldFuelBlockConsensus,
-                OldFuelBlocks,
-                OldTransactions,
-            },
+            old::{OldFuelBlockConsensus, OldFuelBlocks, OldTransactions},
         },
     },
 };
 use fuel_core_storage::{
     blueprint::BlueprintInspect,
     codec::Encode,
-    iter::{
-        BoxedIter,
-        IntoBoxedIter,
-        IterDirection,
-        IteratorOverTable,
-    },
+    iter::{BoxedIter, IntoBoxedIter, IterDirection, IteratorOverTable},
     kv_store::KeyValueInspect,
     not_found,
     structured_storage::TableWithBlueprint,
-    transactional::{
-        IntoTransaction,
-        StorageTransaction,
-    },
-    Error as StorageError,
-    Result as StorageResult,
-    StorageAsRef,
+    transactional::{IntoTransaction, StorageTransaction},
+    Error as StorageError, Result as StorageResult, StorageAsRef,
 };
 use fuel_core_types::{
-    blockchain::{
-        block::CompressedBlock,
-        consensus::Consensus,
-        primitives::BlockId,
-    },
+    blockchain::{block::CompressedBlock, consensus::Consensus, primitives::BlockId},
     entities::relayer::transaction::RelayedTransactionStatus,
     fuel_tx::{
-        Address,
-        AssetId,
-        Bytes32,
-        ContractId,
-        Salt,
-        Transaction,
-        TxId,
-        TxPointer,
-        UtxoId,
-    },
-    fuel_types::{
-        BlockHeight,
-        Nonce,
+        Address, AssetId, Bytes32, ContractId, Salt, Transaction, TxId, TxPointer, UtxoId,
     },
     services::txpool,
 };
@@ -351,7 +314,7 @@ impl OffChainIterableKeyValueView {
         start: Option<CoinBalancesKey>,
         direction: IterDirection,
         base_asset_id: &'a AssetId,
-    ) -> BoxedIter<'_, Result<(AssetId, u128), StorageError>> {
+    ) -> BoxedIter<'a, Result<(AssetId, u128), StorageError>> {
         self.iter_all_filtered_keys::<CoinBalances, _>(
             Some(owner),
             start.as_ref(),
@@ -382,7 +345,7 @@ impl OffChainIterableKeyValueView {
         owner: &Address,
         base_asset_id: &'a AssetId,
         direction: IterDirection,
-    ) -> BoxedIter<'_, Result<(AssetId, u128), StorageError>> {
+    ) -> BoxedIter<'a, Result<(AssetId, u128), StorageError>> {
         let start = start.map(|asset_id| CoinBalancesKey::new(owner, &asset_id));
         let base_asset_balance = self.base_asset_balance(base_asset_id, owner);
         let non_base_asset_balance =
@@ -397,7 +360,7 @@ impl OffChainIterableKeyValueView {
         owner: &Address,
         base_asset_id: &'a AssetId,
         direction: IterDirection,
-    ) -> BoxedIter<'_, Result<(AssetId, u128), StorageError>> {
+    ) -> BoxedIter<'a, Result<(AssetId, u128), StorageError>> {
         let base_asset_balance = self.base_asset_balance(base_asset_id, owner);
         let non_base_asset_balances =
             self.non_base_asset_balances(owner, None, direction, base_asset_id);
