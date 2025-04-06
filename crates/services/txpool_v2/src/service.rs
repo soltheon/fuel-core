@@ -8,10 +8,7 @@ use crate::{
 
 use fuel_core_client::client::FuelClient;
 use fuel_core_types::fuel_tx::{field::Inputs, ContractId, Input};
-use serde_json;
-use std::net::Ipv4Addr;
 use std::str::FromStr;
-use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 
 use fuel_core_services::TaskNextAction;
@@ -47,7 +44,7 @@ use fuel_core_txpool::{
 };
 use fuel_core_types::services::executor::TransactionExecutionResult;
 use fuel_core_types::{
-    fuel_tx::{AssetId, Cacheable, Receipt, Transaction, UniqueIdentifier},
+    fuel_tx::{Receipt, Transaction, UniqueIdentifier},
     fuel_types::{BlockHeight, ChainId},
     services::{
         block_importer::SharedImportResult,
@@ -561,111 +558,41 @@ where
         peer_id: PeerId,
     ) {
         // @author soltheon
-        let block_number: u32 = *self.current_height_reader.read();
+        let block_number = *self.current_height_reader.read();
+    let is_dex_swap = matches!(&tx, Transaction::Script(script) 
+        if script.inputs().iter().any(|input| matches!(input, Input::Contract(c) if Self::is_dex(&c.contract_id))));
 
-        // Check if transaction is swapping on dex
-        if let Transaction::Script(script) = &tx {
-            let tx_inputs = script.inputs();
-            for input in tx_inputs {
-                let relevant = match input {
-                    Input::Contract(c) => Self::is_dex(&c.contract_id),
-                    _ => false,
-                };
+    if !is_dex_swap {
+        return;
+    }
 
-                if relevant {
-                    dbg!(&script);
-                    // TODO: do i need to precompute this?
-                    let mut tx = tx.clone();
-                    // sets metadata
-                    tx.precompute(&self.chain_id).unwrap();
-                    dbg!(&tx);
-                    let addr = std::net::SocketAddr::new(
-                        std::net::IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
-                        4000,
-                    );
+    let tx_to_sim = tx.clone();
+    let mempool_db = Arc::clone(&self.mempool_db);
+    let client = FuelClient::new("127.0.0.1:4000").expect("Invalid address");
 
-                    let client = FuelClient::from(addr);
-                    let mempool_db: Arc<Mutex<MempoolDB>> = Arc::clone(&self.mempool_db); // Clone Arc for the spawn
 
-                    tokio::spawn(async move {
-                        dbg!("\n\n\n\n\n================================Simulating transaction to get amounts:=================================== \n\n");
-                        match client.dry_run(&[tx.clone()]).await {
-                            Ok(res) => {
-                                match &res[0].result {
-                                    TransactionExecutionResult::Success {
-                                        result: _,
-                                        receipts,
-                                        total_gas: _,
-                                        total_fee: _,
-                                    } => {
-                                        // Store receipts in database
-                                        let assets_moved: Vec<(ContractId, AssetId, i64)> = receipts.iter()
-                        .filter(|r| {
-                            match r {
-                                Receipt::Transfer {id, to, ..} => Self::is_dex(&id) || Self::is_dex(&to),
-                                Receipt::TransferOut {id, ..} => Self::is_dex(&id),
-                                Receipt::Call {id, to, ..} => Self::is_dex(&id) || Self::is_dex(&to),
-                                _ => false,
-                            }
-                        })
-                        .map(|r| {
-                            match r {
-                                Receipt::Transfer { id, to, amount, asset_id, .. } => {
-                                    if Self::is_dex(id) {
-                                        (*id, *asset_id, -(*amount as i64))
-                                    } else {
-                                        (*to, *asset_id, *amount as i64)
-                                    }
-                                }
-                                Receipt::TransferOut { id, amount, asset_id, .. } => {
-                                        (*id, *asset_id, -(*amount as i64))
-                                }
-                                Receipt::Call { id, to, amount, asset_id, .. } => {
-                                    if Self::is_dex(id) {
-                                        (*id, *asset_id, -(*amount as i64))
-                                    } else {
-                                        (ContractId::from(*to), *asset_id, *amount as i64)
-                                    }
-                                }
-                                _ => panic!("\n\n\n\n\n\n\n\n\n wrong receipt passed filter, this should never happen\n\n\n"),
-                            }
-                        })
-                        .collect(); // Add .collect() to turn iterator into Vec
-
-                                        let db = mempool_db.lock().await;
-                                        db.insert_assets_moved(
-                                            block_number,
-                                            assets_moved,
-                                        )
-                                        .expect(
-                                            "Failed to insert assets_moved into SQLite",
-                                        );
-                                        // Write to file for debugging using tokio::fs for async I/O
-                                        let json = serde_json::to_string(&res).unwrap_or_else(|e| {
-                        tracing::error!("Failed to serialize dry_run result: {}", e);
-                        "{}".to_string()
-                    });
-                                        let mut file = tokio::fs::File::create(
-                                            "/tmp/simulation_output.json",
-                                        )
-                                        .await
-                                        .unwrap();
-                                        file.write_all(json.as_bytes()).await.unwrap();
-                                        file.flush().await.unwrap();
-                                        tracing::info!("Dry run result written to /tmp/simulation_output.json");
-                                        dbg!("Dry succeeded run result written to /tmp/simulation_output.json");
-                                    }
-                                    TransactionExecutionResult::Failed { .. } => (),
-                                }
-                            }
-                            Err(e) => {
-                                tracing::error!("Dry run failed: {}", e);
-                            }
-                        }
-                    }); // End simulation
-                } // end relevant transaction
+    tokio::spawn(async move {
+        let dry_run_result = client.dry_run(&[tx_to_sim]).await;
+        
+        if let Ok(results) = dry_run_result {
+                dbg!(&results);
+            if let TransactionExecutionResult::Success { receipts, .. } = &results[0].result {
+                let assets_moved: Vec<_> = receipts.iter()
+                    .filter_map(|receipt| match receipt {
+                        Receipt::Transfer { id, to, amount, asset_id, .. } => 
+                            Self::is_dex(id).then_some((*id, *asset_id, -(*amount as i64)))
+                            .or_else(|| Self::is_dex(to).then_some((*to, *asset_id, *amount as i64))),
+                        Receipt::TransferOut { id, amount, asset_id, .. } => 
+                            Self::is_dex(id).then_some((*id, *asset_id, -(*amount as i64))),
+                        _ => None,
+                    })
+                    .collect();
+                let db = mempool_db.lock().await;
+                db.insert_assets_moved(block_number, assets_moved)
+                    .unwrap_or_else(|e| tracing::error!("DB insert failed: {}", e));
             }
         }
+    });
 
         let Ok(reservation) = self.transaction_verifier_process.reserve() else {
             tracing::error!("Failed to insert transaction from P2P: Out of capacity");
@@ -676,7 +603,7 @@ where
             message_id,
             peer_id,
         });
-        let op = self.insert_transaction(Arc::new(tx), info, None);
+        let op = self.insert_transaction(Arc::new(tx.clone()), info, None);
         self.transaction_verifier_process
             .spawn_reserved(reservation, op);
     }

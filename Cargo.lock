@@ -4068,7 +4068,6 @@ dependencies = [
  "petgraph",
  "rand 0.8.5",
  "rusqlite",
- "serde_json",
  "tokio",
  "tokio-stream",
  "tracing",
