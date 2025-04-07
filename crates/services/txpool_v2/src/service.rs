@@ -579,9 +579,16 @@ where
             if let TransactionExecutionResult::Success { receipts, .. } = &results[0].result {
                 let assets_moved: Vec<_> = receipts.iter()
                     .filter_map(|receipt| match receipt {
-                        Receipt::Transfer { id, to, amount, asset_id, .. } => 
-                            Self::is_dex(id).then_some((*id, *asset_id, -(*amount as i64)))
-                            .or_else(|| Self::is_dex(to).then_some((*to, *asset_id, *amount as i64))),
+                        Receipt::Transfer { id, to, amount, asset_id, .. } => {
+                            let from_dex = Self::is_dex(id);
+                            let to_dex = Self::is_dex(to); // Fixed: was checking id twice
+            (from_dex != to_dex) // XOR: only proceed if exactly one is DEX
+                .then_some((
+                    if from_dex { *id } else { *to },
+                    *asset_id,
+                    if from_dex { -(*amount as i64) } else { *amount as i64 }
+                ))
+        },
                         Receipt::TransferOut { id, amount, asset_id, .. } => 
                             Self::is_dex(id).then_some((*id, *asset_id, -(*amount as i64))),
                         _ => None,
