@@ -568,7 +568,7 @@ where
         tokio::spawn(async move {
             let results = match client.dry_run(&[tx_to_sim]).await {
                 Ok(res) => res,
-                Err(e) => {
+                Err(_) => {
                     return;
                 }
             };
