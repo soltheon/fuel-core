@@ -572,25 +572,30 @@ where
 
 
     tokio::spawn(async move {
-        let dry_run_result = client.dry_run(&[tx_to_sim]).await;
+        let results = client.dry_run(&[tx_to_sim]).await.unwrap();
         
-        if let Ok(results) = dry_run_result {
                 dbg!(&results);
             if let TransactionExecutionResult::Success { receipts, .. } = &results[0].result {
                 let assets_moved: Vec<_> = receipts.iter()
                     .filter_map(|receipt| match receipt {
                         Receipt::Transfer { id, to, amount, asset_id, .. } => {
-                            let from_dex = Self::is_dex(id);
-                            let to_dex = Self::is_dex(to); // Fixed: was checking id twice
-            (from_dex != to_dex) // XOR: only proceed if exactly one is DEX
-                .then_some((
-                    if from_dex { *id } else { *to },
-                    *asset_id,
-                    if from_dex { -(*amount as i64) } else { *amount as i64 }
-                ))
-        },
+                            let from_is_dex = Self::is_dex(id);
+                            let to_is_dex = Self::is_dex(to);
+                            // self-transfer
+                            if id == to {
+                                // credit as a transfer_out and manually add transfer_in for next
+                                // pool later
+                                Some((*id, *asset_id, -(*amount as i64), true))
+                            } else if from_is_dex {
+                                Some((*id, *asset_id, -(*amount as i64), false))
+                            } else if to_is_dex {
+                                Some((*to, *asset_id, *amount as i64, false))
+                            } else {
+                                    None
+                                }
+                        },
                         Receipt::TransferOut { id, amount, asset_id, .. } => 
-                            Self::is_dex(id).then_some((*id, *asset_id, -(*amount as i64))),
+                            Self::is_dex(id).then_some((*id, *asset_id, -(*amount as i64), false)),
                         _ => None,
                     })
                     .collect();
@@ -598,8 +603,7 @@ where
                 db.insert_assets_moved(block_number, assets_moved)
                     .unwrap_or_else(|e| tracing::error!("DB insert failed: {}", e));
             }
-        }
-    });
+    }); // end spawn thread simulation
 
         let Ok(reservation) = self.transaction_verifier_process.reserve() else {
             tracing::error!("Failed to insert transaction from P2P: Out of capacity");

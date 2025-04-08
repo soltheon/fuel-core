@@ -26,6 +26,7 @@ impl MempoolDB {
                 from_address BLOB NOT NULL,
                 asset_id BLOB NOT NULL,
                 change INTEGER NOT NULL,
+                self_transfer BOOL NOT NULL,
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (block, from_address, asset_id)
             )",
@@ -38,19 +39,20 @@ impl MempoolDB {
     pub fn insert_assets_moved(
         &self,
         block: u32,
-        assets_moved: Vec<(ContractId, AssetId, i64)>,
+        assets_moved: Vec<(ContractId, AssetId, i64, bool)>,
     ) -> Result<()> {
         let mut stmt = self.conn.prepare(
-            "INSERT OR IGNORE INTO assets_moved (block, from_address, asset_id, change) 
-             VALUES (?1, ?2, ?3, ?4)",
+            "INSERT OR IGNORE INTO assets_moved (block, from_address, asset_id, change, self_transfer) 
+             VALUES (?1, ?2, ?3, ?4, ?5)",
         )?;
 
-        for (from, asset_id, change) in assets_moved {
+        for (from, asset_id, change, self_transfer) in assets_moved {
             stmt.execute(params![
                 block,
                 from.as_ref(),     // ContractId as bytes
                 asset_id.as_ref(), // AssetId as bytes
-                change
+                change,
+                self_transfer
             ])?;
         }
         Ok(())
