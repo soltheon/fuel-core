@@ -546,11 +546,6 @@ where
         }
     }
 
-    // TODO: inline this
-    fn is_dex(addr: &ContractId) -> bool {
-        AMMS.contains(addr)
-    }
-
     fn manage_tx_from_p2p(
         &mut self,
         tx: Transaction,
@@ -559,28 +554,33 @@ where
     ) {
         // @author soltheon
         let block_number = *self.current_height_reader.read();
-    let is_dex_swap = matches!(&tx, Transaction::Script(script) 
-        if script.inputs().iter().any(|input| matches!(input, Input::Contract(c) if Self::is_dex(&c.contract_id))));
+        let is_dex_swap = matches!(&tx, Transaction::Script(script) 
+        if script.inputs().iter().any(|input| matches!(input, Input::Contract(c) if AMMS.contains(&c.contract_id))));
 
-    if !is_dex_swap {
-        return;
-    }
+        if !is_dex_swap {
+            return;
+        }
 
-    let tx_to_sim = tx.clone();
-    let mempool_db = Arc::clone(&self.mempool_db);
-    let client = FuelClient::new("127.0.0.1:4000").expect("Invalid address");
+        // simulate transaction and save swap details
+        let tx_to_sim = tx.clone();
+        let mempool_db = Arc::clone(&self.mempool_db);
+        let client = FuelClient::new("127.0.0.1:4000").expect("Invalid address");
+        tokio::spawn(async move {
+            let results = match client.dry_run(&[tx_to_sim]).await {
+                Ok(res) => res,
+                Err(e) => {
+                    return;
+                }
+            };
+            dbg!(&results);
 
-
-    tokio::spawn(async move {
-        let results = client.dry_run(&[tx_to_sim]).await.unwrap();
-        
-                dbg!(&results);
+            // if tx will succeed store details
             if let TransactionExecutionResult::Success { receipts, .. } = &results[0].result {
                 let assets_moved: Vec<_> = receipts.iter()
                     .filter_map(|receipt| match receipt {
                         Receipt::Transfer { id, to, amount, asset_id, .. } => {
-                            let from_is_dex = Self::is_dex(id);
-                            let to_is_dex = Self::is_dex(to);
+                            let from_is_dex = AMMS.contains(id);
+                            let to_is_dex = AMMS.contains(to);
                             // self-transfer
                             if id == to {
                                 // credit as a transfer_out and manually add transfer_in for next
@@ -591,11 +591,11 @@ where
                             } else if to_is_dex {
                                 Some((*to, *asset_id, *amount as i64, false))
                             } else {
-                                    None
-                                }
+                                None
+                            }
                         },
                         Receipt::TransferOut { id, amount, asset_id, .. } => 
-                            Self::is_dex(id).then_some((*id, *asset_id, -(*amount as i64), false)),
+                        AMMS.contains(id).then_some((*id, *asset_id, -(*amount as i64), false)),
                         _ => None,
                     })
                     .collect();
@@ -603,17 +603,18 @@ where
                 db.insert_assets_moved(block_number, assets_moved)
                     .unwrap_or_else(|e| tracing::error!("DB insert failed: {}", e));
             }
-    }); // end spawn thread simulation
+        }); // end spawn thread simulation
 
         let Ok(reservation) = self.transaction_verifier_process.reserve() else {
             tracing::error!("Failed to insert transaction from P2P: Out of capacity");
             return;
         };
-
+        
         let info = Some(GossipsubMessageInfo {
             message_id,
             peer_id,
         });
+
         let op = self.insert_transaction(Arc::new(tx.clone()), info, None);
         self.transaction_verifier_process
             .spawn_reserved(reservation, op);
