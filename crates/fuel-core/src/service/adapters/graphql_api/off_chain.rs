@@ -1,19 +1,10 @@
 use crate::{
     database::{
-        database_description::{
-            off_chain::OffChain,
-            IndexationKind,
-        },
-        Database,
-        OffChainIterableKeyValueView,
-        OffChainKeyValueView,
+        database_description::{off_chain::OffChain, IndexationKind},
+        Database, OffChainIterableKeyValueView, OffChainKeyValueView,
     },
     fuel_core_graphql_api::{
-        ports::{
-            worker,
-            OffChainDatabase,
-            OffChainDatabaseAt,
-        },
+        ports::{worker, OffChainDatabase, OffChainDatabaseAt},
         storage::{
             contracts::ContractsInfo,
             relayed_transactions::RelayedTransactionStatuses,
@@ -24,23 +15,13 @@ use crate::{
         indexation::coins_to_spend::NON_RETRYABLE_BYTE,
         ports::CoinsToSpendIndexIter,
         storage::{
-            assets::{
-                AssetDetails,
-                AssetsInfo,
-            },
+            assets::{AssetDetails, AssetsInfo},
             balances::{
-                CoinBalances,
-                CoinBalancesKey,
-                MessageBalance,
-                MessageBalances,
+                CoinBalances, CoinBalancesKey, MessageBalance, MessageBalances,
                 TotalBalanceAmount,
             },
             coins::CoinsToSpendIndex,
-            old::{
-                OldFuelBlockConsensus,
-                OldFuelBlocks,
-                OldTransactions,
-            },
+            old::{OldFuelBlockConsensus, OldFuelBlocks, OldTransactions},
         },
     },
 };
@@ -61,22 +42,10 @@ use fuel_core_storage::{
     StorageAsRef,
 };
 use fuel_core_types::{
-    blockchain::{
-        block::CompressedBlock,
-        consensus::Consensus,
-        primitives::BlockId,
-    },
+    blockchain::{block::CompressedBlock, consensus::Consensus, primitives::BlockId},
     entities::relayer::transaction::RelayedTransactionStatus,
     fuel_tx::{
-        Address,
-        AssetId,
-        Bytes32,
-        ContractId,
-        Salt,
-        Transaction,
-        TxId,
-        TxPointer,
-        UtxoId,
+        Address, AssetId, Bytes32, ContractId, Salt, Transaction, TxId, TxPointer, UtxoId,
     },
     fuel_types::{
         BlockHeight,
