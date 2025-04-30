@@ -11,6 +11,9 @@ repository = { workspace = true }
 description = "Transaction pool that manages transactions and their dependencies."
 
 [dependencies]
+rusqlite = { workspace = true }
+lazy_static = {workspace = true}
+fuel-core-client = { path = "../../../crates/client", features = ["std","test-helpers"] }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 derive_more = { workspace = true }

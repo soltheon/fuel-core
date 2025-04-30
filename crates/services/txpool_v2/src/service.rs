@@ -2,114 +2,94 @@ use crate::{
     self as fuel_core_txpool,
     pool::TxPoolStats,
     pool_worker::{
-        PoolInsertRequest,
-        PoolNotification,
-        PoolReadRequest,
-        PoolWorkerInterface,
+        PoolInsertRequest, PoolNotification, PoolReadRequest, PoolWorkerInterface,
     },
 };
+
+use fuel_core_client::client::FuelClient;
+use fuel_core_types::fuel_tx::{field::Inputs, ContractId, Input};
+use std::str::FromStr;
+use tokio::sync::Mutex;
+
 use fuel_core_services::TaskNextAction;
 
-use crate::pool_worker::{
-    ExtendedInsertionSource,
-    InsertionSource,
-};
+use crate::pool_worker::{ExtendedInsertionSource, InsertionSource};
 use fuel_core_metrics::txpool_metrics::txpool_metrics;
 use fuel_core_services::{
-    seqlock::{
-        SeqLock,
-        SeqLockReader,
-        SeqLockWriter,
-    },
-    AsyncProcessor,
-    RunnableService,
-    RunnableTask,
-    ServiceRunner,
-    StateWatcher,
+    seqlock::{SeqLock, SeqLockReader, SeqLockWriter},
+    AsyncProcessor, RunnableService, RunnableTask, ServiceRunner, StateWatcher,
     SyncProcessor,
 };
 use fuel_core_txpool::{
     collision_manager::basic::BasicCollisionManager,
     config::Config,
-    error::{
-        Error,
-        RemovedReason,
-    },
+    error::{Error, RemovedReason},
     pool::Pool,
     ports::{
-        AtomicView,
-        BlockImporter as BlockImporterTrait,
-        ChainStateInfoProvider,
-        GasPriceProvider as GasPriceProviderTrait,
-        P2PRequests,
-        P2PSubscriptions,
-        TxPoolPersistentStorage,
-        TxStatusManager as TxStatusManagerTrait,
+        AtomicView, BlockImporter as BlockImporterTrait, ChainStateInfoProvider,
+        GasPriceProvider as GasPriceProviderTrait, P2PRequests, P2PSubscriptions,
+        TxPoolPersistentStorage, TxStatusManager as TxStatusManagerTrait,
         WasmChecker as WasmCheckerTrait,
     },
     selection_algorithms::ratio_tip_gas::RatioTipGasSelection,
     service::{
-        memory::MemoryPool,
-        pruner::TransactionPruner,
-        subscriptions::Subscriptions,
+        memory::MemoryPool, pruner::TransactionPruner, subscriptions::Subscriptions,
         verifications::Verification,
     },
     shared_state::SharedState,
     storage::{
-        graph::{
-            GraphConfig,
-            GraphStorage,
-        },
+        graph::{GraphConfig, GraphStorage},
         Storage,
     },
 };
+use fuel_core_types::services::executor::TransactionExecutionResult;
 use fuel_core_types::{
-    fuel_tx::{
-        Transaction,
-        UniqueIdentifier,
-    },
-    fuel_types::{
-        BlockHeight,
-        ChainId,
-    },
+    fuel_tx::{Receipt, Transaction, UniqueIdentifier},
+    fuel_types::{BlockHeight, ChainId},
     services::{
         block_importer::SharedImportResult,
         p2p::{
-            GossipData,
-            GossipsubMessageAcceptance,
-            GossipsubMessageInfo,
-            PeerId,
+            GossipData, GossipsubMessageAcceptance, GossipsubMessageInfo, PeerId,
             TransactionGossipData,
         },
-        txpool::{
-            ArcPoolTx,
-            TransactionStatus,
-        },
+        txpool::{ArcPoolTx, TransactionStatus},
     },
     tai64::Tai64,
 };
 use futures::StreamExt;
 use parking_lot::RwLock;
 use std::{
-    collections::{
-        BTreeMap,
-        HashSet,
-        VecDeque,
-    },
+    collections::{BTreeMap, HashSet, VecDeque},
     sync::Arc,
-    time::{
-        SystemTime,
-        SystemTimeError,
-    },
+    time::{SystemTime, SystemTimeError},
 };
 use tokio::{
-    sync::{
-        mpsc,
-        oneshot,
-        watch,
-    },
+    sync::{mpsc, oneshot, watch},
     time::MissedTickBehavior,
 };
+
+use crate::mempool_db::MempoolDB;
+use lazy_static::lazy_static;
+lazy_static! {
+    pub static ref AMMS: Vec<ContractId> =
+        vec![*MIRA, *MIRA_HELPER, *DIESEL, *DIESEL_HELPER];
+    pub static ref MIRA: ContractId = ContractId::from_str(
+        "0x2e40f2b244b98ed6b8204b3de0156c6961f98525c8162f80162fcf53eebd90e7",
+    )
+    .unwrap();
+    pub static ref MIRA_HELPER: ContractId = ContractId::from_str(
+        "0xa703db08d1dbf30a6cd2fef942d8dcf03f25d2254e2091ee1f97bf5fa615639e",
+    )
+    .unwrap();
+    pub static ref DIESEL: ContractId = ContractId::from_str(
+        "0x7c293b054938bedca41354203be4c08aec2c3466412cac803f4ad62abf22e476",
+    )
+    .unwrap();
+    pub static ref DIESEL_HELPER: ContractId = ContractId::from_str(
+        "0xa703db08d1dbf30a6cd2fef942d8dcf03f25d2254e2091ee1f97bf5fa615639e",
+    )
+    .unwrap();
+}
 
 pub(crate) mod memory;
 mod pruner;
@@ -190,6 +170,7 @@ where
     tx_sync_history: Shared<HashSet<PeerId>>,
     shared_state: SharedState,
     metrics: bool,
+    mempool_db: Arc<Mutex<MempoolDB>>,
 }
 
 #[async_trait::async_trait]
@@ -303,7 +284,7 @@ where
 
         if let Err(err) = self.pool_worker.process_block(Arc::clone(&result)) {
             tracing::error!("{err}");
-            return TaskNextAction::Stop
+            return TaskNextAction::Stop;
         }
         // We don't want block importer wait for us to process the result.
         drop(result);
@@ -331,7 +312,7 @@ where
 
                 if let Err(err) = result {
                     tracing::error!("{err}");
-                    return TaskNextAction::Stop
+                    return TaskNextAction::Stop;
                 }
             }
         }
@@ -378,7 +359,7 @@ where
                 // We do it at the top of the function to avoid any inconsistency in case of error
                 let Ok(duration) = i64::try_from(duration.as_secs()) else {
                     tracing::error!("Failed to convert the duration to i64");
-                    return
+                    return;
                 };
 
                 match source {
@@ -455,7 +436,7 @@ where
         for transaction in transactions {
             let Ok(reservation) = self.transaction_verifier_process.reserve() else {
                 tracing::error!("Failed to insert transactions: Out of capacity");
-                continue
+                continue;
             };
             let op = self.insert_transaction(transaction, None, None);
 
@@ -533,7 +514,7 @@ where
                         tx_id,
                         TransactionStatus::squeezed_out(err.to_string()),
                     );
-                    return
+                    return;
                 }
             };
 
@@ -571,16 +552,70 @@ where
         message_id: Vec<u8>,
         peer_id: PeerId,
     ) {
+        // @author soltheon
+        let block_number = *self.current_height_reader.read();
+        let is_dex_swap = matches!(&tx, Transaction::Script(script) 
+        if script.inputs().iter().any(|input| matches!(input, Input::Contract(c) if AMMS.contains(&c.contract_id))));
+
+        if !is_dex_swap {
+            return;
+        }
+
+        // simulate transaction and save swap details
+        let tx_to_sim = tx.clone();
+        let mempool_db = Arc::clone(&self.mempool_db);
+        let client = FuelClient::new("127.0.0.1:4000").expect("Invalid address");
+        tokio::spawn(async move {
+            let results = match client.dry_run(&[tx_to_sim]).await {
+                Ok(res) => res,
+                Err(_) => {
+                    return;
+                }
+            };
+            dbg!(&results);
+
+            // if tx will succeed store details
+            if let TransactionExecutionResult::Success { receipts, .. } = &results[0].result {
+                let assets_moved: Vec<_> = receipts.iter()
+                    .filter_map(|receipt| match receipt {
+                        Receipt::Transfer { id, to, amount, asset_id, .. } => {
+                            let from_is_dex = AMMS.contains(id);
+                            let to_is_dex = AMMS.contains(to);
+                            // self-transfer
+                            if id == to {
+                                // credit as a transfer_out and manually add transfer_in for next
+                                // pool later
+                                Some((*id, *asset_id, -(*amount as i64), true))
+                            } else if from_is_dex {
+                                Some((*id, *asset_id, -(*amount as i64), false))
+                            } else if to_is_dex {
+                                Some((*to, *asset_id, *amount as i64, false))
+                            } else {
+                                None
+                            }
+                        },
+                        Receipt::TransferOut { id, amount, asset_id, .. } => 
+                        AMMS.contains(id).then_some((*id, *asset_id, -(*amount as i64), false)),
+                        _ => None,
+                    })
+                    .collect();
+                let db = mempool_db.lock().await;
+                db.insert_assets_moved(block_number, assets_moved)
+                    .unwrap_or_else(|e| tracing::error!("DB insert failed: {}", e));
+            }
+        }); // end spawn thread simulation
+
         let Ok(reservation) = self.transaction_verifier_process.reserve() else {
             tracing::error!("Failed to insert transaction from P2P: Out of capacity");
             return;
         };
-
+        
         let info = Some(GossipsubMessageInfo {
             message_id,
             peer_id,
         });
-        let op = self.insert_transaction(Arc::new(tx), info, None);
+
+        let op = self.insert_transaction(Arc::new(tx.clone()), info, None);
         self.transaction_verifier_process
             .spawn_reserved(reservation, op);
     }
@@ -598,7 +633,7 @@ where
 
                     // We already synced with this peer in the past.
                     if !tx_sync_history.insert(peer_id.clone()) {
-                        return
+                        return;
                     }
                 }
 
@@ -832,6 +867,13 @@ where
         latest_stats: pool_stats_receiver,
     };
 
+    tracing::warn!("\n\nInitializing MempoolDB...\n\n");
+    dbg!("mempool_db pending");
+    let mempool_db = Arc::new(Mutex::new(
+        MempoolDB::new().expect("Failed to open sqlite database"),
+    ));
+    dbg!("mempool_db success");
+
     Service::new(Task {
         chain_id,
         utxo_validation,
@@ -848,5 +890,6 @@ where
         metrics,
         tx_sync_history: Default::default(),
         tx_status_manager: Arc::new(tx_status_manager),
+        mempool_db,
     })
 }
