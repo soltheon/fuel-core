@@ -103,6 +103,8 @@ fuel-gas-price-algorithm = { version = "0.43.2", path = "crates/fuel-gas-price-a
 fuel-vm-private = { version = "0.60.2", package = "fuel-vm", default-features = false }
 
 # Common dependencies
+rusqlite = { version = "0.31", features = ["bundled"] }
+lazy_static = "*"
 anyhow = "1.0"
 async-graphql = { version = "=7.0.15", features = [
   "graphiql",
