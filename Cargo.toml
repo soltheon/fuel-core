@@ -56,6 +56,8 @@ version = "0.44.0"
 [workspace.dependencies]
 
 # Common dependencies
+rusqlite = { version = "0.31", features = ["bundled"] }
+lazy_static = "*"
 anyhow = "1.0"
 async-graphql = { version = "=7.0.15", features = [
   "graphiql",

@@ -1,30 +1,15 @@
 use anyhow::anyhow;
-use clap::{
-    Args,
-    builder::ArgPredicate::IsPresent,
-};
+use clap::{builder::ArgPredicate::IsPresent, Args};
 use fuel_core::{
     p2p::{
-        Multiaddr,
-        config::{
-            Config,
-            MAX_RESPONSE_SIZE,
-            NotInitialized,
-            convert_to_libp2p_keypair,
-        },
+        config::{convert_to_libp2p_keypair, Config, NotInitialized, MAX_RESPONSE_SIZE},
         gossipsub_config::default_gossipsub_builder,
-        heartbeat,
+        heartbeat, Multiaddr,
     },
-    types::{
-        fuel_crypto,
-        fuel_crypto::SecretKey,
-    },
+    types::{fuel_crypto, fuel_crypto::SecretKey},
 };
 use std::{
-    net::{
-        IpAddr,
-        Ipv4Addr,
-    },
+    net::{IpAddr, Ipv4Addr},
     num::NonZeroU32,
     path::PathBuf,
     str::FromStr,
@@ -229,12 +214,9 @@ pub enum KeypairArg {
 
 impl KeypairArg {
     pub fn try_from_string(s: &str) -> anyhow::Result<KeypairArg> {
-        // first try to parse as inline secret
-        // then try to parse as a pathbuf
-
-        let secret = SecretKey::from_str(s);
-        if let Ok(secret) = secret {
-            return Ok(KeypairArg::InlineSecret(secret))
+        // Try parsing as inline secret
+        if let Ok(secret) = SecretKey::from_str(s) {
+            return Ok(KeypairArg::InlineSecret(secret));
         }
         let path = PathBuf::from_str(s);
         let Ok(pathbuf) = path;
@@ -265,7 +247,7 @@ impl P2PArgs {
     ) -> anyhow::Result<Option<Config<NotInitialized>>> {
         if !self.enable_p2p {
             tracing::info!("P2P service disabled");
-            return Ok(None)
+            return Ok(None);
         }
 
         let local_keypair = {

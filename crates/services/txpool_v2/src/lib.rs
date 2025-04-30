@@ -45,6 +45,7 @@ mod collision_manager;
 pub mod config;
 pub mod error;
 mod extracted_outputs;
+mod mempool_db;
 mod pending_pool;
 mod pool;
 mod pool_worker;
@@ -65,8 +66,5 @@ fuel_core_trace::enable_tracing!();
 use fuel_core_types::fuel_asm::Word;
 pub use pool::TxPoolStats;
 pub use selection_algorithms::Constraints;
-pub use service::{
-    Service,
-    new_service,
-};
+pub use service::{new_service, Service};
 pub use shared_state::SharedState;
