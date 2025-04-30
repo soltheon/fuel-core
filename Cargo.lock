@@ -4062,6 +4062,7 @@ dependencies = [
  "fuel-core-txpool",
  "fuel-core-types 0.43.2",
  "futures",
+ "lazy_static",
  "lru 0.13.0",
  "mockall",
  "num-rational",

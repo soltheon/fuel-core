@@ -214,23 +214,17 @@ pub enum KeypairArg {
 
 impl KeypairArg {
     pub fn try_from_string(s: &str) -> anyhow::Result<KeypairArg> {
-        // first try to parse as inline secret
-        // then try to parse as a pathbuf
-
-        let secret = SecretKey::from_str(s);
-        if let Ok(secret) = secret {
+        // Try parsing as inline secret
+        if let Ok(secret) = SecretKey::from_str(s) {
             return Ok(KeypairArg::InlineSecret(secret));
         }
-        let path = PathBuf::from_str(s);
-        #[allow(irrefutable_let_patterns)]
-        if let Ok(pathbuf) = path {
-            if pathbuf.exists() {
-                return Ok(KeypairArg::Path(pathbuf))
-            } else {
-                return Err(anyhow!(
-                    "path `{pathbuf:?}` does not exist for keypair argument"
-                ))
-            }
+
+        // Try as a file path
+        let path = std::path::PathBuf::from(s);
+        if path.exists() {
+            Ok(KeypairArg::Path(path))
+        } else {
+            Err(anyhow::anyhow!("Path `{path:?}` does not exist"))
         }
     }
 }
