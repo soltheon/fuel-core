@@ -601,7 +601,7 @@ where
             peer_id,
         });
 
-        let op = self.insert_transaction(Arc::new(tx.clone()), info, None);
+        let op = self.insert_transaction(Arc::new(tx), info, None);
         self.transaction_verifier_process
             .spawn_reserved(reservation, op);
     }
