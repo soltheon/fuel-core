@@ -19,11 +19,6 @@ use fuel_core_services::{
     seqlock::{SeqLock, SeqLockReader, SeqLockWriter},
     AsyncProcessor, RunnableService, RunnableTask, ServiceRunner, StateWatcher,
     SyncProcessor,
-    seqlock::{
-        SeqLock,
-        SeqLockReader,
-        SeqLockWriter,
-    },
 };
 use fuel_core_txpool::{
     collision_manager::basic::BasicCollisionManager,
