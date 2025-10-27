@@ -559,7 +559,6 @@ where
                     return;
                 }
             };
-            dbg!(&results);
 
             // if tx will succeed store details
             if let TransactionExecutionResult::Success { receipts, .. } = &results[0].result {
