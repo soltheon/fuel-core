@@ -73,21 +73,9 @@ use crate::mempool_db::MempoolDB;
 use lazy_static::lazy_static;
 lazy_static! {
     pub static ref AMMS: Vec<ContractId> =
-        vec![*MIRA, *MIRA_HELPER, *DIESEL, *DIESEL_HELPER];
-    pub static ref MIRA: ContractId = ContractId::from_str(
-        "0x2e40f2b244b98ed6b8204b3de0156c6961f98525c8162f80162fcf53eebd90e7",
-    )
-    .unwrap();
-    pub static ref MIRA_HELPER: ContractId = ContractId::from_str(
-        "0xa703db08d1dbf30a6cd2fef942d8dcf03f25d2254e2091ee1f97bf5fa615639e",
-    )
-    .unwrap();
-    pub static ref DIESEL: ContractId = ContractId::from_str(
-        "0x7c293b054938bedca41354203be4c08aec2c3466412cac803f4ad62abf22e476",
-    )
-    .unwrap();
-    pub static ref DIESEL_HELPER: ContractId = ContractId::from_str(
-        "0xa703db08d1dbf30a6cd2fef942d8dcf03f25d2254e2091ee1f97bf5fa615639e",
+        vec![*REACTOR];
+    pub static ref REACTOR: ContractId = ContractId::from_str(
+        "0xe0eeb0f14dbc2793a1fb701c507f184f6d44f1cee08f83fe3837b8ef41f55818",
     )
     .unwrap();
 }
