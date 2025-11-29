@@ -528,7 +528,6 @@ where
         peer_id: PeerId,
     ) {
         // @author soltheon
-        let block_number = *self.current_height_reader.read();
         let is_dex_swap = matches!(&tx, Transaction::Script(script) 
         if script.inputs().iter().any(|input| matches!(input, Input::Contract(c) if AMMS.contains(&c.contract_id))));
 
@@ -539,8 +538,9 @@ where
         // simulate transaction and save swap details
         let tx_to_sim = tx.clone();
         let mempool_db = Arc::clone(&self.mempool_db);
-        let client = FuelClient::new("127.0.0.1:4000").expect("Invalid address");
+        let block_number = *self.current_height_reader.read();
         tokio::spawn(async move {
+            let client = FuelClient::new("127.0.0.1:4000").expect("Invalid address");
             let results = match client.dry_run(&[tx_to_sim]).await {
                 Ok(res) => res,
                 Err(_) => {
