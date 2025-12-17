@@ -57,7 +57,8 @@ rust-version = "1.90.0"
 version = "0.47.1"
 
 [workspace.dependencies]
-
+rusqlite = { version = "0.31", features = ["bundled"] }
+lazy_static = "*"
 # Common dependencies
 alloy-consensus = { version = "1.0.37", default-features = false }
 alloy-json-rpc = { version = "1.0.37", default-features = false }
